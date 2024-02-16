@@ -1,3 +1,4 @@
+from sklearn.model_selection import train_test_split
 import torch.utils.data as data
 from PIL import Image
 import os
@@ -6,6 +7,66 @@ import scipy.io
 import numpy as np
 import csv
 from openpyxl import load_workbook
+import pandas as pd
+import ast
+
+class GC10_DET(data.Dataset):
+
+    def __init__(self, index, transform, patch_num, mode=True, root='/Data4/student_zhihan_data/source_code/IQA_A-STAR/source_code/Mydemo/merged_new.csv'):
+        data = pd.read_csv(root)
+        
+        img_name = data['img_name']
+        
+        # Apply the conversion function to the 'f2' column and then compute the mean F2 score
+        data['f2'] = data['f2'].apply(safe_convert_to_list)
+        data['mean_f2'] = data['f2'].apply(lambda x: np.mean(x) if len(x) > 0 else np.nan) 
+        
+        # f2 = data['mean_f2']
+        # f2 = data['ap_50_95']
+        f2 = data['ap_50']
+        
+        img_train, img_test, y_train, y_test = train_test_split(img_name, f2, test_size=0.2, random_state=42)
+        
+        if mode:
+            self.samples = img_train.values
+            self.targets = y_train.values
+        else:
+            self.samples = img_test.values
+            self.targets = y_test.values
+            
+        self.tranform = transform
+    
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (sample, target) where target is class_index of the target class.
+        """
+        path, target = self.samples[index], self.targets[index]
+        sample = pil_loader(path)
+        if self.tranform is not None:
+            sample = self.tranform(sample)
+            
+        return sample, target
+    
+    def __len__(self):
+        return len(self.samples)
+
+            
+def safe_convert_to_list(s):
+    try:
+        # Attempt to directly evaluate the string
+        return ast.literal_eval(s)
+    except SyntaxError:
+        # If direct evaluation fails, attempt to manually parse the string
+        cleaned_str = s.strip('[]')
+        if cleaned_str:  # Check if the string is not empty
+            numbers = [float(num) for num in cleaned_str.split() if num not in ['[', ']']]
+            return numbers
+        else:
+            return []
 
 
 class LIVEFolder(data.Dataset):

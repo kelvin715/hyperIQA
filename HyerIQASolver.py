@@ -1,8 +1,10 @@
+from sklearn.metrics import mean_squared_error, r2_score
 import torch
 from scipy import stats
 import numpy as np
 import models
 import data_loader
+import tqdm
 
 class HyperIQASolver(object):
     """Solver for training and testing hyperIQA"""
@@ -41,7 +43,8 @@ class HyperIQASolver(object):
             pred_scores = []
             gt_scores = []
 
-            for img, label in self.train_data:
+            for img, label in tqdm.tqdm(self.train_data, desc='Epoch %d' % t, total=len(self.train_data)):
+                
                 img = torch.tensor(img.cuda())
                 label = torch.tensor(label.cuda())
 
@@ -66,13 +69,18 @@ class HyperIQASolver(object):
                 self.solver.step()
 
             train_srcc, _ = stats.spearmanr(pred_scores, gt_scores)
+            # calculate mse and r2
+            train_mse = mean_squared_error(pred_scores, gt_scores)
+            train_r2 = r2_score(pred_scores, gt_scores)
 
-            test_srcc, test_plcc = self.test(self.test_data)
+            test_srcc, test_plcc, mse, r2 = self.test(self.test_data)
             if test_srcc > best_srcc:
                 best_srcc = test_srcc
                 best_plcc = test_plcc
-            print('%d\t%4.3f\t\t%4.4f\t\t%4.4f\t\t%4.4f' %
-                  (t + 1, sum(epoch_loss) / len(epoch_loss), train_srcc, test_srcc, test_plcc))
+                best_mse = mse
+                best_r2 = r2
+            print('%d\t%4.3f\t\t%4.4f\t\t%4.4f\t\t%4.4f\t\t%4.4f\t\t%4.4f\t\t%4.4f\t\t%4.4f' %
+                  (t + 1, sum(epoch_loss) / len(epoch_loss), train_srcc, train_mse, train_r2, test_srcc, test_plcc, mse, r2))
 
             # Update optimizer
             lr = self.lr / pow(10, (t // 6))
@@ -83,9 +91,9 @@ class HyperIQASolver(object):
                           ]
             self.solver = torch.optim.Adam(self.paras, weight_decay=self.weight_decay)
 
-        print('Best test SRCC %f, PLCC %f' % (best_srcc, best_plcc))
+        print('Best test SRCC %f, PLCC %f, MSE %f, R2 %f' % (best_srcc, best_plcc, best_mse, best_r2))
 
-        return best_srcc, best_plcc
+        return best_srcc, best_plcc, best_mse, best_r2
 
     def test(self, data):
         """Testing"""
@@ -93,7 +101,7 @@ class HyperIQASolver(object):
         pred_scores = []
         gt_scores = []
 
-        for img, label in data:
+        for img, label in tqdm.tqdm(data, desc='Testing', total=len(data)):
             # Data.
             img = torch.tensor(img.cuda())
             label = torch.tensor(label.cuda())
@@ -110,6 +118,8 @@ class HyperIQASolver(object):
         gt_scores = np.mean(np.reshape(np.array(gt_scores), (-1, self.test_patch_num)), axis=1)
         test_srcc, _ = stats.spearmanr(pred_scores, gt_scores)
         test_plcc, _ = stats.pearsonr(pred_scores, gt_scores)
+        mse = mean_squared_error(pred_scores, gt_scores)
+        r2 = r2_score(pred_scores, gt_scores)
 
         self.model_hyper.train(True)
-        return test_srcc, test_plcc
+        return test_srcc, test_plcc, mse, r2
